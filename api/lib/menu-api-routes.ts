@@ -11,6 +11,13 @@ export type ApiResponseLike = {
   end(chunk?: string | Uint8Array): void
 }
 
+function normalizePath(pathname: string): string {
+  const path = pathname.replace(/\/$/, '') || '/'
+  if (path === '/menus') return '/api/menus'
+  if (path === '/menu') return '/api/menu'
+  return path
+}
+
 /**
  * Palauttaa true jos pyyntö oli /api/* ja vastaus kirjoitettiin.
  */
@@ -19,7 +26,7 @@ export async function handleMenuRoutes(
   searchParams: URLSearchParams,
   res: ApiResponseLike,
 ): Promise<boolean> {
-  const path = pathname.replace(/\/$/, '') || '/'
+  const path = normalizePath(pathname)
 
   if (path === '/api/menus') {
     const scope = parseScope(searchParams.get('scope'))

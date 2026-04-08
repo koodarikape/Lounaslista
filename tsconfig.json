@@ -23,9 +23,6 @@
     "src",
     "vite.config.ts",
     "menu-api.ts",
-    "menu-api-routes.ts",
-    "menu-extract.ts",
-    "pdf-day-extract.ts",
     "api/**/*.ts"
   ]
 }

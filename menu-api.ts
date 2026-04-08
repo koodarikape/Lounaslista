@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { handleMenuRoutes } from './menu-api-routes.ts'
+import { handleMenuRoutes } from './api/lib/menu-api-routes.ts'
 
 export function createMenuApiMiddleware() {
   return async function menuApi(
