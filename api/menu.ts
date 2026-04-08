@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { handleMenuRoutes } from '../menu-api-routes.ts'
 
 export const config = {
   maxDuration: 60,
@@ -9,7 +10,6 @@ export default async function handler(
   res: VercelResponse,
 ) {
   try {
-    const { handleMenuRoutes } = await import('../menu-api-routes.ts')
     const url = new URL(req.url || '/', 'http://localhost')
     const ok = await handleMenuRoutes(url.pathname, url.searchParams, res)
     if (!ok) {
