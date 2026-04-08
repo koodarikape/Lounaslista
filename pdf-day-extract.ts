@@ -107,7 +107,7 @@ function escapeHtml(s: string): string {
 
 export function plainLunchBlockToHtml(block: string): string {
   const lines = block.split(/\n/).map((l) => l.trim()).filter((l) => l.length > 0)
-  return lines.map((l) => `<p class="menu-pdf-line">${escapeHtml(l)}</p>`).join('')
+  return lines.map((l) => `<p>${escapeHtml(l)}</p>`).join('')
 }
 
 export async function extractTextFromPdfBuffer(data: Buffer): Promise<string> {
@@ -136,16 +136,48 @@ export async function fetchPdfBuffer(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer())
 }
 
+/** Poistaa tyhjät rivit ja tyypilliset PDF-tulosteen roskarivit. */
+export function cleanWeeklyPdfPlainText(fullText: string): string | null {
+  const rawLines = fullText.split(/\r?\n/)
+  const lines = rawLines
+    .map((l) => l.trim())
+    .filter((l) => {
+      if (l.length === 0) return false
+      if (/^--\s*\d+\s+of\s+\d+\s*--$/i.test(l)) return false
+      if (/^sivu\s+\d+/i.test(l)) return false
+      return true
+    })
+  return lines.join('\n').trim() || null
+}
+
+/** Koko PDF:n teksti kappaleiksi (viikkonäkymä). */
+export async function tryPdfFullWeekAsHtml(pdfUrl: string): Promise<string | null> {
+  const { fullWeekHtml } = await tryPdfMenusFromUrl(pdfUrl)
+  return fullWeekHtml
+}
+
 /** Yrittää palauttaa tämän päivän HTML:n PDF:stä; null jos ei onnistu. */
 export async function tryPdfTodayAsHtml(pdfUrl: string): Promise<string | null> {
+  const { todayHtml } = await tryPdfMenusFromUrl(pdfUrl)
+  return todayHtml
+}
+
+export type PdfMenusHtml = { fullWeekHtml: string | null; todayHtml: string | null }
+
+/** Yksi PDF-haku: sekä koko viikko että tämän päivän HTML (jos erottuu). */
+export async function tryPdfMenusFromUrl(pdfUrl: string): Promise<PdfMenusHtml> {
   try {
     const buf = await fetchPdfBuffer(pdfUrl)
     const text = await extractTextFromPdfBuffer(buf)
-    if (!text || text.trim().length < 20) return null
+    if (!text || text.trim().length < 20) {
+      return { fullWeekHtml: null, todayHtml: null }
+    }
+    const cleaned = cleanWeeklyPdfPlainText(text)
+    const fullWeekHtml = cleaned ? plainLunchBlockToHtml(cleaned) : null
     const slice = sliceTodayFromWeeklyPlainText(text)
-    if (!slice) return null
-    return plainLunchBlockToHtml(slice)
+    const todayHtml = slice ? plainLunchBlockToHtml(slice) : null
+    return { fullWeekHtml, todayHtml }
   } catch {
-    return null
+    return { fullWeekHtml: null, todayHtml: null }
   }
 }

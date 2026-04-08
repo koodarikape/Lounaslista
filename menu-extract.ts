@@ -1,5 +1,5 @@
 import { load } from 'cheerio'
-import { tryPdfTodayAsHtml } from './pdf-day-extract.ts'
+import { tryPdfMenusFromUrl } from './pdf-day-extract.ts'
 import { restaurants } from './src/data/restaurants.ts'
 import { getFiDatePatterns, getFiWeekdayLong } from './src/date-fns-fi.ts'
 
@@ -8,10 +8,7 @@ const UA =
 
 export type MenuScope = 'today' | 'week'
 
-export type MenuResult =
-  | { kind: 'html'; html: string }
-  | { kind: 'pdf'; pdfUrl: string; variant?: 'compact' | 'full' }
-  | { kind: 'error'; message: string }
+export type MenuResult = { kind: 'html'; html: string } | { kind: 'error'; message: string }
 
 async function fetchHtml(url: string): Promise<string> {
   const res = await fetch(url, {
@@ -76,6 +73,11 @@ function wrapHtmlFragment(title: string, inner: string): string {
   return `<div class="menu-extract" data-menu="1"><h3 class="menu-extract__title">${escapeHtml(title)}</h3>${inner}</div>`
 }
 
+/** Tämän päivän kortit: sama otsikkorakenne kuin viikkolistassa. */
+function wrapTodayHtmlFragment(inner: string): string {
+  return wrapHtmlFragment('Tänään', inner)
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -136,7 +138,9 @@ async function menuVilhelm(scope: MenuScope): Promise<MenuResult> {
     if (dayOnly) inner = dayOnly
   }
   inner = sanitizeHtmlString(inner)
-  return { kind: 'html', html: wrapHtmlFragment(scope === 'today' ? 'Tänään' : 'Lounaslista', inner) }
+  const html =
+    scope === 'today' ? wrapTodayHtmlFragment(inner) : wrapHtmlFragment('Lounaslista', inner)
+  return { kind: 'html', html }
 }
 
 async function menuLeivos(scope: MenuScope): Promise<MenuResult> {
@@ -160,16 +164,14 @@ async function menuLeivos(scope: MenuScope): Promise<MenuResult> {
       return { kind: 'error', message: 'Tämän päivän listaa ei löytynyt.' }
     }
     const inner = sanitizeHtmlString(dayHtml)
-    return { kind: 'html', html: wrapHtmlFragment('Tänään', inner) }
+    return { kind: 'html', html: wrapTodayHtmlFragment(inner) }
   }
 
-  const intro = $('#main .site-main .row.bg-light').first()
   const inner$ = load('<div class="leivos-lounas"></div>')
   const box = inner$('.leivos-lounas')
-  if (intro.length) box.append(intro.clone())
   box.append(section.clone())
   const inner = sanitizeHtmlString(box.html() ?? '')
-  return { kind: 'html', html: wrapHtmlFragment('Koko viikko', inner) }
+  return { kind: 'html', html: wrapHtmlFragment('Lounaslista', inner) }
 }
 
 function extractTourulaDaySectionFromRaw(raw: string): string | null {
@@ -273,58 +275,61 @@ async function menuTourula(scope: MenuScope): Promise<MenuResult> {
   const url = restaurants.find((r) => r.id === 'tourula')!.embedUrl
   const raw = await fetchHtml(url)
 
+  const ogLines = await tryTourulaMenuLinesFromSlidesOg(raw)
+  const ogHtml =
+    ogLines && ogLines.length > 0
+      ? ogLines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')
+      : null
+
   if (scope === 'today') {
-    const ogLines = await tryTourulaMenuLinesFromSlidesOg(raw)
-    if (ogLines) {
-      const inner = ogLines
-        .map((line) => `<p class="menu-pdf-line">${escapeHtml(line)}</p>`)
-        .join('')
-      const note = `<p class="menu-extract__note">Koko viikon näkymä: napauta ravintolan otsikkoa.</p>`
-      return { kind: 'html', html: wrapHtmlFragment('Tänään', inner + note) }
+    if (ogHtml) {
+      return { kind: 'html', html: wrapTodayHtmlFragment(ogHtml) }
     }
 
     const inner = extractTourulaDaySectionFromRaw(raw)
     if (!inner) return { kind: 'error', message: 'Päivän upotusta ei löytynyt.' }
     const sanitized = sanitizeHtmlString(inner)
-    const note = `<p class="menu-extract__note">Koko viikon näkymä: napauta ravintolan otsikkoa.</p>`
-    return { kind: 'html', html: wrapHtmlFragment('Päivän lista (buffet)', sanitized + note) }
+    return { kind: 'html', html: wrapTodayHtmlFragment(sanitized) }
+  }
+
+  if (ogHtml) {
+    const note = `<p class="menu-extract__note">Lisätieto: <a href="http://www.lounasinfo.fi/index.php?c=Suomi&amp;t=Jyv%C3%A4skyl%C3%A4&amp;a=Tourula&amp;r=12" target="_blank" rel="noopener">lounasinfo.fi</a></p>`
+    return { kind: 'html', html: wrapHtmlFragment('Lounaslista', ogHtml + note) }
   }
 
   const inner = extractTourulaWeekHtmlFromRaw(raw)
   if (!inner) return { kind: 'error', message: 'Sisältöä ei löytynyt.' }
   const sanitized = sanitizeHtmlString(inner)
   const note = `<p class="menu-extract__note">Lisätieto: <a href="http://www.lounasinfo.fi/index.php?c=Suomi&amp;t=Jyv%C3%A4skyl%C3%A4&amp;a=Tourula&amp;r=12" target="_blank" rel="noopener">lounasinfo.fi</a></p>`
-  return { kind: 'html', html: wrapHtmlFragment('Koko viikko', sanitized + note) }
+  return { kind: 'html', html: wrapHtmlFragment('Lounaslista', sanitized + note) }
 }
 
 async function menuPapas(scope: MenuScope): Promise<MenuResult> {
   const url = restaurants.find((r) => r.id === 'papas')!.embedUrl
   const raw = await fetchHtml(url)
   const pdf = extractPapasLounasPdfUrl(raw)
-  if (!pdf) return { kind: 'error', message: 'PDF-linkkiä ei löytynyt.' }
-  const proxy = `/api/pdf-proxy?u=${encodeURIComponent(pdf)}`
+  if (!pdf) return { kind: 'error', message: 'Lounaslistan osoitetta ei löytynyt.' }
 
-  if (scope === 'today') {
-    const fromPdf = await tryPdfTodayAsHtml(pdf)
-    if (fromPdf) {
-      const note = `<p class="menu-extract__note">Koko viikon PDF: <a href="${proxy}" target="_blank" rel="noopener">avaa</a> tai napauta ravintolan otsikkoa.</p>`
-      return {
-        kind: 'html',
-        html: wrapHtmlFragment('Tänään', fromPdf + note),
-      }
+  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf)
+
+  if (scope === 'week') {
+    if (weekHtml) {
+      return { kind: 'html', html: wrapHtmlFragment('Lounaslista', weekHtml) }
     }
     return {
-      kind: 'pdf',
-      pdfUrl: proxy,
-      variant: 'compact',
+      kind: 'error',
+      message: 'Lounaslistan tekstiä ei voitu lukea.',
     }
   }
 
-  return {
-    kind: 'pdf',
-    pdfUrl: proxy,
-    variant: 'full',
+  if (todayHtml) {
+    return { kind: 'html', html: wrapTodayHtmlFragment(todayHtml) }
   }
+  if (weekHtml) {
+    const note = `<p class="menu-extract__note">Päivää ei erotettu; näytetään koko viikko. Koko lista: napauta otsikkoa.</p>`
+    return { kind: 'html', html: wrapTodayHtmlFragment(weekHtml + note) }
+  }
+  return { kind: 'error', message: 'Lounaslistan tekstiä ei voitu lukea.' }
 }
 
 async function menuSeppala(scope: MenuScope): Promise<MenuResult> {
@@ -336,31 +341,29 @@ async function menuSeppala(scope: MenuScope): Promise<MenuResult> {
   if (!href) {
     href = $('a[href*="lounari_lounaslistat"][href$=".pdf"]').first().attr('href')
   }
-  if (!href) return { kind: 'error', message: 'PDF-linkkiä ei löytynyt.' }
+  if (!href) return { kind: 'error', message: 'Lounaslistan osoitetta ei löytynyt.' }
   const pdf = new URL(href, base).href
-  const proxy = `/api/pdf-proxy?u=${encodeURIComponent(pdf)}`
 
-  if (scope === 'today') {
-    const fromPdf = await tryPdfTodayAsHtml(pdf)
-    if (fromPdf) {
-      const note = `<p class="menu-extract__note">Koko viikon PDF: <a href="${proxy}" target="_blank" rel="noopener">avaa</a> tai napauta ravintolan otsikkoa.</p>`
-      return {
-        kind: 'html',
-        html: wrapHtmlFragment('Tänään', fromPdf + note),
-      }
+  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf)
+
+  if (scope === 'week') {
+    if (weekHtml) {
+      return { kind: 'html', html: wrapHtmlFragment('Lounaslista', weekHtml) }
     }
     return {
-      kind: 'pdf',
-      pdfUrl: proxy,
-      variant: 'compact',
+      kind: 'error',
+      message: 'Lounaslistan tekstiä ei voitu lukea.',
     }
   }
 
-  return {
-    kind: 'pdf',
-    pdfUrl: proxy,
-    variant: 'full',
+  if (todayHtml) {
+    return { kind: 'html', html: wrapTodayHtmlFragment(todayHtml) }
   }
+  if (weekHtml) {
+    const note = `<p class="menu-extract__note">Päivää ei erotettu; näytetään koko viikko. Koko lista: napauta otsikkoa.</p>`
+    return { kind: 'html', html: wrapTodayHtmlFragment(weekHtml + note) }
+  }
+  return { kind: 'error', message: 'Lounaslistan tekstiä ei voitu lukea.' }
 }
 
 export async function getMenuForRestaurant(
@@ -394,14 +397,4 @@ export async function getAllMenus(scope: MenuScope): Promise<Record<string, Menu
     ids.map(async (id) => [id, await getMenuForRestaurant(id, scope)] as const),
   )
   return Object.fromEntries(entries)
-}
-
-export function isPdfProxyAllowed(target: URL): boolean {
-  const host = target.hostname.replace(/^www\./, '').toLowerCase()
-  if (host === 'ravintola-papas.fi') return target.pathname.toLowerCase().endsWith('.pdf')
-  if (host === 'seppalanlounaskeskus.fi')
-    return target.pathname.toLowerCase().endsWith('.pdf')
-  if (host === 'asiakas.kotisivukone.com')
-    return target.pathname.toLowerCase().includes('seppalan') && target.pathname.toLowerCase().endsWith('.pdf')
-  return false
 }

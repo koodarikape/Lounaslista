@@ -351,22 +351,87 @@ body {
 }
 
 .feed-card__body {
-  padding: 0 0.85rem 1rem;
+  padding: 0;
   border-top: 1px solid var(--border);
   background: var(--bg);
 }
 
+/* Kortin lista: sama perustyyli kuin Vilhelm (riviväli, otsikko, kappaleet). */
 .feed-card__body .menu-extract {
-  font-size: 0.88rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  padding: 0.65rem 1rem 1rem;
+  margin: 0;
+  color: var(--text);
 }
 
 .feed-card__body .menu-extract__title {
-  font-size: 1rem;
-  margin-bottom: 0.5rem;
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.feed-card__body .menu-extract p,
+.feed-card__body .menu-extract li {
+  margin: 0.25rem 0;
+}
+
+.feed-card__body .menu-extract strong,
+.feed-card__body .menu-extract b {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.feed-card__body .menu-extract h1,
+.feed-card__body .menu-extract h2,
+.feed-card__body .menu-extract h3,
+.feed-card__body .menu-extract h4 {
+  font-size: 1.02rem;
+  font-weight: 650;
+  margin: 0.55rem 0 0.3rem;
+  color: var(--text);
+}
+
+.feed-card__body .menu-extract h2:first-child,
+.feed-card__body .menu-extract h3:first-child {
+  margin-top: 0;
+}
+
+.feed-card__body .menu-extract ul {
+  padding-left: 1.15rem;
+  margin: 0.25rem 0;
+}
+
+.feed-card__body .menu-extract__note {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.feed-card__body .menu-extract a {
+  color: var(--accent);
+}
+
+.feed-card__body > .menu-loading,
+.feed-card__body > .menu-error {
+  margin: 0;
+  padding: 0.75rem 1rem 1rem;
+  font-size: 0.95rem;
 }
 
 .feed-card__body .menu-embed-iframe {
-  min-height: 240px;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-height: min(42vh, 320px);
+  border: 0;
+  border-radius: 8px;
+  background: #1a1a1a;
 }
 
 .detail-header {
@@ -417,21 +482,6 @@ body {
   margin: 0.2rem 0 0;
   font-size: 0.85rem;
   color: var(--muted);
-}
-
-.btn--ghost {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.55rem 0.85rem;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  border: 1px solid var(--border);
-  color: var(--text);
-  background: var(--surface);
-  min-height: 2.75rem;
 }
 
 .menu-panel-wrap--detail {
@@ -493,10 +543,6 @@ body {
 
 .menu-extract ul {
   padding-left: 1.2rem;
-}
-
-.menu-extract .menu-pdf-line {
-  margin: 0.2rem 0;
 }
 
 .site-footer {

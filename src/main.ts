@@ -1,11 +1,70 @@
 import './style.css'
 import { restaurants } from './data/restaurants.ts'
 
-type MenuApiOk = { kind: 'html'; html: string } | { kind: 'pdf'; pdfUrl: string; variant?: 'compact' | 'full' }
+type MenuApiOk = { kind: 'html'; html: string }
 type MenuApiErr = { kind: 'error'; message: string }
 type MenuApiResponse = MenuApiOk | MenuApiErr
 
 type BatchResponse = { scope: string; items: Record<string, MenuApiResponse> }
+
+const HELSINKI_TZ = 'Europe/Helsinki'
+
+/** Kalenteripäivä Helsinki-ajassa (YYYY-MM-DD), keskiyön tunnistusta varten. */
+function helsinkiDateKey(ms: number): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: HELSINKI_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(ms))
+}
+
+/** Millisekuntit seuraavaan Helsinki-keskiyöhön (`fromMs`-hetkestä). */
+function msUntilNextHelsinkiMidnight(fromMs: number): number {
+  const startKey = helsinkiDateKey(fromMs)
+  let lo = fromMs
+  let hi = fromMs + 27 * 3600 * 1000
+  while (helsinkiDateKey(hi) === startKey) {
+    hi += 24 * 3600 * 1000
+  }
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (helsinkiDateKey(mid) === startKey) lo = mid
+    else hi = mid
+  }
+  return hi - fromMs
+}
+
+let lastHelsinkiDateKey = helsinkiDateKey(Date.now())
+let midnightTimer: ReturnType<typeof setTimeout> | null = null
+
+function refreshTodayAfterDateChange() {
+  const meta = document.querySelector('.brand__meta')
+  if (meta) meta.textContent = formatDateFi(new Date())
+  if (view === 'feed') void loadFeedMenus()
+}
+
+function scheduleMidnightRefresh() {
+  if (midnightTimer !== null) {
+    clearTimeout(midnightTimer)
+    midnightTimer = null
+  }
+  const ms = msUntilNextHelsinkiMidnight(Date.now())
+  midnightTimer = setTimeout(() => {
+    midnightTimer = null
+    lastHelsinkiDateKey = helsinkiDateKey(Date.now())
+    refreshTodayAfterDateChange()
+    scheduleMidnightRefresh()
+  }, ms)
+}
+
+function checkHelsinkiDayChanged() {
+  const key = helsinkiDateKey(Date.now())
+  if (key === lastHelsinkiDateKey) return
+  lastHelsinkiDateKey = key
+  refreshTodayAfterDateChange()
+  scheduleMidnightRefresh()
+}
 
 function formatDateFi(d: Date): string {
   return d.toLocaleDateString('fi-FI', {
@@ -13,7 +72,7 @@ function formatDateFi(d: Date): string {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-    timeZone: 'Europe/Helsinki',
+    timeZone: HELSINKI_TZ,
   })
 }
 
@@ -24,11 +83,6 @@ let detailId: string | null = null
 
 function renderMenuResult(data: MenuApiResponse): string {
   if (data.kind === 'html') return data.html
-  if (data.kind === 'pdf') {
-    const cls =
-      data.variant === 'compact' ? 'menu-pdf-frame menu-pdf-frame--compact' : 'menu-pdf-frame'
-    return `<iframe class="${cls}" title="Lounaslista PDF" src="${escapeHtml(data.pdfUrl)}"></iframe>`
-  }
   return `<p class="menu-error">${escapeHtml(data.message)}</p>`
 }
 
@@ -41,12 +95,12 @@ function render() {
 }
 
 function renderFeed() {
+  lastHelsinkiDateKey = helsinkiDateKey(Date.now())
   app.innerHTML = `
     <header class="site-header site-header--compact">
       <div class="site-header__inner">
         <h1 class="brand__title">Lounaslista</h1>
         <p class="brand__meta">${formatDateFi(new Date())}</p>
-        <p class="intro intro--short">Kaikkien valittujen ravintoloiden tämän päivän listat. Napauta korttia avataksesi koko viikon ruokalistan.</p>
       </div>
     </header>
 
@@ -147,7 +201,6 @@ function renderDetail(id: string) {
         <h1 class="detail-title">${escapeHtml(r.name)}</h1>
         <p class="detail-area">${escapeHtml(r.area)}</p>
       </div>
-      <a class="btn btn--ghost" href="${escapeHtml(r.embedUrl)}" target="_blank" rel="noopener noreferrer">Alkuperäinen sivu</a>
     </header>
 
     <div class="menu-panel-wrap menu-panel-wrap--detail">
@@ -190,5 +243,11 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
+
+scheduleMidnightRefresh()
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkHelsinkiDayChanged()
+})
 
 render()
