@@ -1,4 +1,3 @@
-import { PDFParse } from 'pdf-parse'
 import { getFiWeekdayLong } from './src/date-fns-fi.ts'
 
 const UA =
@@ -111,6 +110,8 @@ export function plainLunchBlockToHtml(block: string): string {
 }
 
 export async function extractTextFromPdfBuffer(data: Buffer): Promise<string> {
+  /** Dynaaminen import: välttää pdfjs-distin latauksen serverless-kylmäkäynnissä (Vercel). */
+  const { PDFParse } = await import('pdf-parse')
   const parser = new PDFParse({ data: new Uint8Array(data) })
   try {
     const result = await parser.getText()
