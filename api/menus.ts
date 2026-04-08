@@ -20,10 +20,12 @@ export default async function handler(
     if (!res.headersSent) {
       res.statusCode = 500
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const detail = e instanceof Error ? e.message : String(e)
       res.end(
         JSON.stringify({
           kind: 'error',
           message: 'Palvelinvirhe (lounaslistat).',
+          details: detail,
         }),
       )
     }
