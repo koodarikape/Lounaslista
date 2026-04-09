@@ -121,12 +121,16 @@ export async function extractTextFromPdfBuffer(data: Buffer): Promise<string> {
   }
 }
 
-export async function fetchPdfBuffer(url: string): Promise<Buffer> {
+export async function fetchPdfBuffer(url: string, referer?: string): Promise<Buffer> {
+  const headers: Record<string, string> = {
+    'User-Agent': UA,
+    Accept: 'application/pdf,*/*',
+  }
+  if (referer) {
+    headers.Referer = referer
+  }
   const res = await fetch(url, {
-    headers: {
-      'User-Agent': UA,
-      Accept: 'application/pdf,*/*',
-    },
+    headers,
     redirect: 'follow',
   })
   if (!res.ok) throw new Error(`PDF ${res.status}`)
@@ -166,9 +170,12 @@ export async function tryPdfTodayAsHtml(pdfUrl: string): Promise<string | null> 
 export type PdfMenusHtml = { fullWeekHtml: string | null; todayHtml: string | null }
 
 /** Yksi PDF-haku: sekä koko viikko että tämän päivän HTML (jos erottuu). */
-export async function tryPdfMenusFromUrl(pdfUrl: string): Promise<PdfMenusHtml> {
+export async function tryPdfMenusFromUrl(
+  pdfUrl: string,
+  referer?: string,
+): Promise<PdfMenusHtml> {
   try {
-    const buf = await fetchPdfBuffer(pdfUrl)
+    const buf = await fetchPdfBuffer(pdfUrl, referer)
     const text = await extractTextFromPdfBuffer(buf)
     if (!text || text.trim().length < 20) {
       return { fullWeekHtml: null, todayHtml: null }

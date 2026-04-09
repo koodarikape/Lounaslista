@@ -102,12 +102,16 @@ async function extractTextFromPdfBuffer(data) {
     await parser.destroy();
   }
 }
-async function fetchPdfBuffer(url) {
+async function fetchPdfBuffer(url, referer) {
+  const headers = {
+    "User-Agent": UA,
+    Accept: "application/pdf,*/*"
+  };
+  if (referer) {
+    headers.Referer = referer;
+  }
   const res = await fetch(url, {
-    headers: {
-      "User-Agent": UA,
-      Accept: "application/pdf,*/*"
-    },
+    headers,
     redirect: "follow"
   });
   if (!res.ok) throw new Error(`PDF ${res.status}`);
@@ -126,9 +130,9 @@ function cleanWeeklyPdfPlainText(fullText) {
   });
   return lines.join("\n").trim() || null;
 }
-async function tryPdfMenusFromUrl(pdfUrl) {
+async function tryPdfMenusFromUrl(pdfUrl, referer) {
   try {
-    const buf = await fetchPdfBuffer(pdfUrl);
+    const buf = await fetchPdfBuffer(pdfUrl, referer);
     const text = await extractTextFromPdfBuffer(buf);
     if (!text || text.trim().length < 20) {
       return { fullWeekHtml: null, todayHtml: null };
@@ -259,13 +263,11 @@ async function sanitizeHtmlString(html) {
   return root.html() ?? "";
 }
 function extractPapasLounasPdfUrl(html) {
-  const re = /href\s*=\s*["']?(https?:\/\/[^"'\s<>]+\.pdf)/gi;
   const found = [];
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    found.push(m[1]);
+  for (const m of html.matchAll(/https?:\/\/[^"<\s>]+\.pdf/gi)) {
+    found.push(m[0]);
   }
-  const preferred = found.find((u) => /lounaslista/i.test(u));
+  const preferred = found.find((u) => /lounaslista|lounas/i.test(u));
   const chosen = preferred ?? found[0];
   if (!chosen) return null;
   try {
@@ -483,7 +485,7 @@ async function menuPapas(scope) {
   const raw = await fetchHtml(url);
   const pdf = extractPapasLounasPdfUrl(raw);
   if (!pdf) return { kind: "error", message: "Lounaslistan osoitetta ei l\xF6ytynyt." };
-  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf);
+  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf, url);
   if (scope === "week") {
     if (weekHtml) {
       return { kind: "html", html: wrapHtmlFragment("Lounaslista", weekHtml) };
@@ -514,7 +516,7 @@ async function menuSeppala(scope) {
   }
   if (!href) return { kind: "error", message: "Lounaslistan osoitetta ei l\xF6ytynyt." };
   const pdf = new URL(href, base).href;
-  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf);
+  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf, url);
   if (scope === "week") {
     if (weekHtml) {
       return { kind: "html", html: wrapHtmlFragment("Lounaslista", weekHtml) };

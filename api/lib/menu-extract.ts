@@ -60,13 +60,12 @@ async function sanitizeHtmlString(html: string): Promise<string> {
 }
 
 export function extractPapasLounasPdfUrl(html: string): string | null {
-  const re = /href\s*=\s*["']?(https?:\/\/[^"'\s<>]+\.pdf)/gi
+  /** Polussa voi olla heittomerkki (Papa's); vanha regex katkaisi URL:n siihen. */
   const found: string[] = []
-  let m: RegExpExecArray | null
-  while ((m = re.exec(html)) !== null) {
-    found.push(m[1])
+  for (const m of html.matchAll(/https?:\/\/[^"<\s>]+\.pdf/gi)) {
+    found.push(m[0])
   }
-  const preferred = found.find((u) => /lounaslista/i.test(u))
+  const preferred = found.find((u) => /lounaslista|lounas/i.test(u))
   const chosen = preferred ?? found[0]
   if (!chosen) return null
   try {
@@ -327,7 +326,7 @@ async function menuPapas(scope: MenuScope): Promise<MenuResult> {
   const pdf = extractPapasLounasPdfUrl(raw)
   if (!pdf) return { kind: 'error', message: 'Lounaslistan osoitetta ei löytynyt.' }
 
-  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf)
+  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf, url)
 
   if (scope === 'week') {
     if (weekHtml) {
@@ -362,7 +361,7 @@ async function menuSeppala(scope: MenuScope): Promise<MenuResult> {
   if (!href) return { kind: 'error', message: 'Lounaslistan osoitetta ei löytynyt.' }
   const pdf = new URL(href, base).href
 
-  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf)
+  const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf, url)
 
   if (scope === 'week') {
     if (weekHtml) {
