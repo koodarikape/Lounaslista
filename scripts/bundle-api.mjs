@@ -1,7 +1,7 @@
 /**
- * Vercel-bundler saattaa rikkoa cheerio/pdf-parse -ketjun.
- * Esbuild + packages: 'external' paketoi vain app-koodin; node_modules ladataan
- * Lambda-ajossa (tuo oikeat binäärit).
+ * Cheerio pidetään ulkoisena (Vercel/Lambda -yhteensopivuus).
+ * pdf-parse + pdfjs-dist paketoidaan mukaan: pelkkä external rikkoi PDF-tekstin
+ * tuotannossa (puuttuvat ali-moduulit / wasm -polut).
  */
 import * as esbuild from 'esbuild'
 import { fileURLToPath } from 'node:url'
@@ -19,7 +19,7 @@ for (const name of ['menus', 'menu']) {
     target: 'node20',
     format: 'esm',
     outfile: join(projectRoot, 'api', `${name}.js`),
-    packages: 'external',
+    external: ['cheerio', 'cheerio/slim'],
     logLevel: 'info',
   })
 }
