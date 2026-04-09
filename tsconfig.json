@@ -23,6 +23,7 @@
     "src",
     "vite.config.ts",
     "menu-api.ts",
+    "scripts/api-entries/**/*.ts",
     "api/**/*.ts"
   ]
 }

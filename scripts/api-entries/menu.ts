@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { handleMenuRoutes } from './lib/menu-api-routes.ts'
+import { handleMenuRoutes } from '../../api/lib/menu-api-routes.ts'
 
 export const config = {
   maxDuration: 60,
