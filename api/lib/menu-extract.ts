@@ -5,11 +5,11 @@ import { getFiDatePatterns, getFiWeekdayLong } from '../../src/date-fns-fi.ts'
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
-/** Laiska lataus: staattinen cheerio-import kaataa Vercel-serverlessin moduulin latauksessa. */
-let cheerioLoadMemo: typeof import('cheerio').load | undefined
+/** Laiska lataus: `cheerio/slim` (kevyempi kuin täysi paketti; vähemmän ongelmia Vercel-bundlessa). */
+let cheerioLoadMemo: typeof import('cheerio/slim').load | undefined
 async function loadCheerio() {
   if (!cheerioLoadMemo) {
-    const { load } = await import('cheerio')
+    const { load } = await import('cheerio/slim')
     cheerioLoadMemo = load
   }
   return cheerioLoadMemo

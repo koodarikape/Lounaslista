@@ -1,4 +1,4 @@
-import { getAllMenus, getMenuForRestaurant, type MenuScope } from './menu-extract.ts'
+import type { MenuScope } from './menu-extract.ts'
 
 function parseScope(s: string | null): MenuScope {
   return s === 'today' ? 'today' : 'week'
@@ -18,8 +18,18 @@ function normalizePath(pathname: string): string {
   return path
 }
 
+let menuExtractPromise: Promise<typeof import('./menu-extract.js')> | null = null
+
+function loadMenuExtract() {
+  if (!menuExtractPromise) {
+    menuExtractPromise = import('./menu-extract.js')
+  }
+  return menuExtractPromise
+}
+
 /**
  * Palauttaa true jos pyyntö oli /api/* ja vastaus kirjoitettiin.
+ * Dynaaminen import: Vercel ei saa ladata cheerio/pdf-ketjua ennen kuin pyyntö tulee.
  */
 export async function handleMenuRoutes(
   pathname: string,
@@ -27,6 +37,7 @@ export async function handleMenuRoutes(
   res: ApiResponseLike,
 ): Promise<boolean> {
   const path = normalizePath(pathname)
+  const { getAllMenus, getMenuForRestaurant } = await loadMenuExtract()
 
   if (path === '/api/menus') {
     const scope = parseScope(searchParams.get('scope'))
