@@ -105,10 +105,15 @@ async function extractTextFromPdfBuffer(data) {
 async function fetchPdfBuffer(url, referer) {
   const headers = {
     "User-Agent": UA,
-    Accept: "application/pdf,*/*"
+    Accept: "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
+    "Accept-Language": "fi-FI,fi;q=0.9,en-US;q=0.7,en;q=0.6"
   };
   if (referer) {
     headers.Referer = referer;
+    try {
+      headers.Origin = new URL(referer).origin;
+    } catch {
+    }
   }
   const res = await fetch(url, {
     headers,
@@ -134,17 +139,51 @@ async function tryPdfMenusFromUrl(pdfUrl, referer) {
   try {
     const buf = await fetchPdfBuffer(pdfUrl, referer);
     const text = await extractTextFromPdfBuffer(buf);
-    if (!text || text.trim().length < 20) {
+    const trimmed = text?.trim() ?? "";
+    if (trimmed.length < 8) {
       return { fullWeekHtml: null, todayHtml: null };
     }
     const cleaned = cleanWeeklyPdfPlainText(text);
-    const fullWeekHtml = cleaned ? plainLunchBlockToHtml(cleaned) : null;
+    let fullWeekHtml = cleaned ? plainLunchBlockToHtml(cleaned) : null;
+    if (!fullWeekHtml && trimmed.length >= 15) {
+      const rough = trimmed.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0).slice(0, 80).join("\n");
+      if (rough.length > 10) fullWeekHtml = plainLunchBlockToHtml(rough);
+    }
     const slice = sliceTodayFromWeeklyPlainText(text);
-    const todayHtml = slice ? plainLunchBlockToHtml(slice) : null;
+    let todayHtml = slice ? plainLunchBlockToHtml(slice) : null;
+    if (!todayHtml && fullWeekHtml) {
+      const loose = sliceTodayLoose(trimmed);
+      if (loose) todayHtml = plainLunchBlockToHtml(loose);
+    }
     return { fullWeekHtml, todayHtml };
   } catch {
     return { fullWeekHtml: null, todayHtml: null };
   }
+}
+function sliceTodayLoose(text) {
+  const target = getFiWeekdayLong().toLowerCase();
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const abbrev = /^(ma|ti|ke|to|pe|la|su)\b/i;
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].toLowerCase();
+    if (l.includes(target)) {
+      start = i;
+      break;
+    }
+    if (abbrev.test(lines[i]) && (lines[i].includes(".") || /\d/.test(lines[i]))) {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return null;
+  const out = [lines[start]];
+  for (let i = start + 1; i < lines.length && i < start + 25; i++) {
+    const l = lines[i];
+    if (abbrev.test(l) && i > start) break;
+    out.push(l);
+  }
+  return out.join("\n").trim() || null;
 }
 var UA, WEEKDAYS, ABBREV_PREFIX, ABBREV_TO_LONG;
 var init_pdf_day_extract = __esm({
@@ -215,7 +254,6 @@ var init_restaurants = __esm({
 // api/lib/menu-extract.ts
 var menu_extract_exports = {};
 __export(menu_extract_exports, {
-  extractPapasLounasPdfUrl: () => extractPapasLounasPdfUrl,
   getAllMenus: () => getAllMenus,
   getMenuForRestaurant: () => getMenuForRestaurant
 });
@@ -262,22 +300,23 @@ async function sanitizeHtmlString(html) {
   });
   return root.html() ?? "";
 }
-function extractPapasLounasPdfUrl(html) {
-  const found = [];
-  for (const m of html.matchAll(/https?:\/\/[^"<\s>]+\.pdf/gi)) {
-    found.push(m[0]);
-  }
-  const preferred = found.find((u) => /lounaslista|lounas/i.test(u));
-  const chosen = preferred ?? found[0];
-  if (!chosen) return null;
-  try {
-    const u = new URL(chosen);
-    const host = u.hostname.replace(/^www\./, "").toLowerCase();
-    if (host !== "ravintola-papas.fi") return null;
-    return chosen;
-  } catch {
-    return null;
-  }
+async function findPapasLounasPdfUrl(html) {
+  const load = await loadCheerio();
+  const $ = load(html);
+  const candidates = [];
+  $('a[href*=".pdf"], a[href*=".PDF"]').each((_, el) => {
+    const href = $(el).attr("href")?.trim();
+    if (!href) return;
+    const abs = /^https?:\/\//i.test(href) ? href : new URL(href, "https://ravintola-papas.fi/").href;
+    try {
+      const host = new URL(abs).hostname.replace(/^www\./, "").toLowerCase();
+      if (host !== "ravintola-papas.fi") return;
+      candidates.push(abs);
+    } catch {
+    }
+  });
+  const preferred = candidates.find((u) => /lounaslista|lounas/i.test(u));
+  return preferred ?? candidates[0] ?? null;
 }
 function wrapHtmlFragment(title, inner) {
   return `<div class="menu-extract" data-menu="1"><h3 class="menu-extract__title">${escapeHtml2(title)}</h3>${inner}</div>`;
@@ -483,7 +522,7 @@ async function menuTourula(scope) {
 async function menuPapas(scope) {
   const url = restaurants.find((r) => r.id === "papas").embedUrl;
   const raw = await fetchHtml(url);
-  const pdf = extractPapasLounasPdfUrl(raw);
+  const pdf = await findPapasLounasPdfUrl(raw);
   if (!pdf) return { kind: "error", message: "Lounaslistan osoitetta ei l\xF6ytynyt." };
   const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf, url);
   if (scope === "week") {
@@ -513,6 +552,9 @@ async function menuSeppala(scope) {
   let href = $("#menulink3").attr("href");
   if (!href) {
     href = $('a[href*="lounari_lounaslistat"][href$=".pdf"]').first().attr("href");
+  }
+  if (!href) {
+    href = $('a[href$=".pdf"][href*="Lounaslista"]').first().attr("href");
   }
   if (!href) return { kind: "error", message: "Lounaslistan osoitetta ei l\xF6ytynyt." };
   const pdf = new URL(href, base).href;

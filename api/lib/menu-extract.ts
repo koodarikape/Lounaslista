@@ -59,23 +59,27 @@ async function sanitizeHtmlString(html: string): Promise<string> {
   return root.html() ?? ''
 }
 
-export function extractPapasLounasPdfUrl(html: string): string | null {
-  /** Polussa voi olla heittomerkki (Papa's); vanha regex katkaisi URL:n siihen. */
-  const found: string[] = []
-  for (const m of html.matchAll(/https?:\/\/[^"<\s>]+\.pdf/gi)) {
-    found.push(m[0])
-  }
-  const preferred = found.find((u) => /lounaslista|lounas/i.test(u))
-  const chosen = preferred ?? found[0]
-  if (!chosen) return null
-  try {
-    const u = new URL(chosen)
-    const host = u.hostname.replace(/^www\./, '').toLowerCase()
-    if (host !== 'ravintola-papas.fi') return null
-    return chosen
-  } catch {
-    return null
-  }
+/** Cheerio lukee href:n oikein (Unicode ´/’ polussa); regex rikkoi URL:n tai jätti PDF:n löytymättä. */
+async function findPapasLounasPdfUrl(html: string): Promise<string | null> {
+  const load = await loadCheerio()
+  const $ = load(html)
+  const candidates: string[] = []
+  $('a[href*=".pdf"], a[href*=".PDF"]').each((_, el) => {
+    const href = $(el).attr('href')?.trim()
+    if (!href) return
+    const abs = /^https?:\/\//i.test(href)
+      ? href
+      : new URL(href, 'https://ravintola-papas.fi/').href
+    try {
+      const host = new URL(abs).hostname.replace(/^www\./, '').toLowerCase()
+      if (host !== 'ravintola-papas.fi') return
+      candidates.push(abs)
+    } catch {
+      /* ohita */
+    }
+  })
+  const preferred = candidates.find((u) => /lounaslista|lounas/i.test(u))
+  return preferred ?? candidates[0] ?? null
 }
 
 function wrapHtmlFragment(title: string, inner: string): string {
@@ -323,7 +327,7 @@ async function menuTourula(scope: MenuScope): Promise<MenuResult> {
 async function menuPapas(scope: MenuScope): Promise<MenuResult> {
   const url = restaurants.find((r) => r.id === 'papas')!.embedUrl
   const raw = await fetchHtml(url)
-  const pdf = extractPapasLounasPdfUrl(raw)
+  const pdf = await findPapasLounasPdfUrl(raw)
   if (!pdf) return { kind: 'error', message: 'Lounaslistan osoitetta ei löytynyt.' }
 
   const { fullWeekHtml: weekHtml, todayHtml } = await tryPdfMenusFromUrl(pdf, url)
@@ -357,6 +361,9 @@ async function menuSeppala(scope: MenuScope): Promise<MenuResult> {
   let href = $('#menulink3').attr('href')
   if (!href) {
     href = $('a[href*="lounari_lounaslistat"][href$=".pdf"]').first().attr('href')
+  }
+  if (!href) {
+    href = $('a[href$=".pdf"][href*="Lounaslista"]').first().attr('href')
   }
   if (!href) return { kind: 'error', message: 'Lounaslistan osoitetta ei löytynyt.' }
   const pdf = new URL(href, base).href

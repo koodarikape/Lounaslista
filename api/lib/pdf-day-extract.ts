@@ -124,10 +124,16 @@ export async function extractTextFromPdfBuffer(data: Buffer): Promise<string> {
 export async function fetchPdfBuffer(url: string, referer?: string): Promise<Buffer> {
   const headers: Record<string, string> = {
     'User-Agent': UA,
-    Accept: 'application/pdf,*/*',
+    Accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'fi-FI,fi;q=0.9,en-US;q=0.7,en;q=0.6',
   }
   if (referer) {
     headers.Referer = referer
+    try {
+      headers.Origin = new URL(referer).origin
+    } catch {
+      /* noop */
+    }
   }
   const res = await fetch(url, {
     headers,
@@ -177,15 +183,57 @@ export async function tryPdfMenusFromUrl(
   try {
     const buf = await fetchPdfBuffer(pdfUrl, referer)
     const text = await extractTextFromPdfBuffer(buf)
-    if (!text || text.trim().length < 20) {
+    const trimmed = text?.trim() ?? ''
+    if (trimmed.length < 8) {
       return { fullWeekHtml: null, todayHtml: null }
     }
     const cleaned = cleanWeeklyPdfPlainText(text)
-    const fullWeekHtml = cleaned ? plainLunchBlockToHtml(cleaned) : null
+    let fullWeekHtml = cleaned ? plainLunchBlockToHtml(cleaned) : null
+    if (!fullWeekHtml && trimmed.length >= 15) {
+      const rough = trimmed
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .slice(0, 80)
+        .join('\n')
+      if (rough.length > 10) fullWeekHtml = plainLunchBlockToHtml(rough)
+    }
     const slice = sliceTodayFromWeeklyPlainText(text)
-    const todayHtml = slice ? plainLunchBlockToHtml(slice) : null
+    let todayHtml = slice ? plainLunchBlockToHtml(slice) : null
+    if (!todayHtml && fullWeekHtml) {
+      const loose = sliceTodayLoose(trimmed)
+      if (loose) todayHtml = plainLunchBlockToHtml(loose)
+    }
     return { fullWeekHtml, todayHtml }
   } catch {
     return { fullWeekHtml: null, todayHtml: null }
   }
+}
+
+/** Jos PDF:ssä on vain lyhenne (To 9.4.) eikä päivän nimeä, ota ensimmäiset ruokarivit. */
+function sliceTodayLoose(text: string): string | null {
+  const target = getFiWeekdayLong().toLowerCase()
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0)
+  const abbrev =
+    /^(ma|ti|ke|to|pe|la|su)\b/i
+  let start = -1
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].toLowerCase()
+    if (l.includes(target)) {
+      start = i
+      break
+    }
+    if (abbrev.test(lines[i]) && (lines[i].includes('.') || /\d/.test(lines[i]))) {
+      start = i
+      break
+    }
+  }
+  if (start === -1) return null
+  const out: string[] = [lines[start]]
+  for (let i = start + 1; i < lines.length && i < start + 25; i++) {
+    const l = lines[i]
+    if (abbrev.test(l) && i > start) break
+    out.push(l)
+  }
+  return out.join('\n').trim() || null
 }
