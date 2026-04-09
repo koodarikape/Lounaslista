@@ -1,10 +1,19 @@
-import { load } from 'cheerio'
 import { tryPdfMenusFromUrl } from './pdf-day-extract.ts'
 import { restaurants } from '../../src/data/restaurants.ts'
 import { getFiDatePatterns, getFiWeekdayLong } from '../../src/date-fns-fi.ts'
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+
+/** Laiska lataus: staattinen cheerio-import kaataa Vercel-serverlessin moduulin latauksessa. */
+let cheerioLoadMemo: typeof import('cheerio').load | undefined
+async function loadCheerio() {
+  if (!cheerioLoadMemo) {
+    const { load } = await import('cheerio')
+    cheerioLoadMemo = load
+  }
+  return cheerioLoadMemo
+}
 
 export type MenuScope = 'today' | 'week'
 
@@ -25,7 +34,8 @@ async function fetchHtml(url: string): Promise<string> {
   return res.text()
 }
 
-function sanitizeHtmlString(html: string): string {
+async function sanitizeHtmlString(html: string): Promise<string> {
+  const load = await loadCheerio()
   const $ = load(`<div id="__root">${html}</div>`)
   const root = $('#__root')
   root.find('script, link').remove()
@@ -87,7 +97,8 @@ function escapeHtml(s: string): string {
 }
 
 /** Vilhelm: leikkaa tämän päivän kappaleet kunnes tulee seuraava päiväotsikko. */
-function sliceVilhelmDay(html: string): string | null {
+async function sliceVilhelmDay(html: string): Promise<string | null> {
+  const load = await loadCheerio()
   const wk = getFiWeekdayLong().toLowerCase()
   const patterns = getFiDatePatterns()
   const $ = load(`<div id="__slice">${html}</div>`)
@@ -122,6 +133,7 @@ function sliceVilhelmDay(html: string): string | null {
 }
 
 async function menuVilhelm(scope: MenuScope): Promise<MenuResult> {
+  const load = await loadCheerio()
   const url = restaurants.find((r) => r.id === 'vilhelm')!.embedUrl
   const raw = await fetchHtml(url)
   const $ = load(raw)
@@ -134,16 +146,17 @@ async function menuVilhelm(scope: MenuScope): Promise<MenuResult> {
   if (next.length) box.append(next.clone())
   let inner = inner$('.vilhelm-lounas').html() ?? ''
   if (scope === 'today') {
-    const dayOnly = sliceVilhelmDay(inner)
+    const dayOnly = await sliceVilhelmDay(inner)
     if (dayOnly) inner = dayOnly
   }
-  inner = sanitizeHtmlString(inner)
+  inner = await sanitizeHtmlString(inner)
   const html =
     scope === 'today' ? wrapTodayHtmlFragment(inner) : wrapHtmlFragment('Lounaslista', inner)
   return { kind: 'html', html }
 }
 
 async function menuLeivos(scope: MenuScope): Promise<MenuResult> {
+  const load = await loadCheerio()
   const url = restaurants.find((r) => r.id === 'leivos')!.embedUrl
   const raw = await fetchHtml(url)
   const $ = load(raw)
@@ -163,18 +176,19 @@ async function menuLeivos(scope: MenuScope): Promise<MenuResult> {
     if (!dayHtml) {
       return { kind: 'error', message: 'Tämän päivän listaa ei löytynyt.' }
     }
-    const inner = sanitizeHtmlString(dayHtml)
+    const inner = await sanitizeHtmlString(dayHtml)
     return { kind: 'html', html: wrapTodayHtmlFragment(inner) }
   }
 
   const inner$ = load('<div class="leivos-lounas"></div>')
   const box = inner$('.leivos-lounas')
   box.append(section.clone())
-  const inner = sanitizeHtmlString(box.html() ?? '')
+  const inner = await sanitizeHtmlString(box.html() ?? '')
   return { kind: 'html', html: wrapHtmlFragment('Lounaslista', inner) }
 }
 
-function extractTourulaDaySectionFromRaw(raw: string): string | null {
+async function extractTourulaDaySectionFromRaw(raw: string): Promise<string | null> {
+  const load = await loadCheerio()
   const $ = load(raw)
   $('[class*="elementor-hidden-"]').remove()
   const iframe = $('.entry-content iframe[src*="docs.google.com/presentation"]').first()
@@ -193,7 +207,8 @@ function extractTourulaDaySectionFromRaw(raw: string): string | null {
   return w('.tourula-paiva').html() ?? null
 }
 
-function extractTourulaWeekHtmlFromRaw(raw: string): string | null {
+async function extractTourulaWeekHtmlFromRaw(raw: string): Promise<string | null> {
+  const load = await loadCheerio()
   const $ = load(raw)
   $('[class*="elementor-hidden-"]').remove()
   const ec = $('.entry-content').first()
@@ -224,7 +239,8 @@ function toGoogleSlidesPubUrl(embedSrc: string): string | null {
   }
 }
 
-function extractTourulaSlidesEmbedSrc(html: string): string | null {
+async function extractTourulaSlidesEmbedSrc(html: string): Promise<string | null> {
+  const load = await loadCheerio()
   const $ = load(html)
   $('[class*="elementor-hidden-"]').remove()
   const iframe = $('.entry-content iframe[src*="docs.google.com/presentation"]').first()
@@ -246,7 +262,7 @@ function splitTourulaOgMenuDescription(desc: string): string[] {
 }
 
 async function tryTourulaMenuLinesFromSlidesOg(raw: string): Promise<string[] | null> {
-  const embedSrc = extractTourulaSlidesEmbedSrc(raw)
+  const embedSrc = await extractTourulaSlidesEmbedSrc(raw)
   if (!embedSrc) return null
   const pubUrl = toGoogleSlidesPubUrl(embedSrc)
   if (!pubUrl) return null
@@ -261,6 +277,7 @@ async function tryTourulaMenuLinesFromSlidesOg(raw: string): Promise<string[] | 
     })
     if (!res.ok) return null
     const page = await res.text()
+    const load = await loadCheerio()
     const $ = load(page)
     const desc = $('meta[property="og:description"]').attr('content')?.trim()
     if (!desc) return null
@@ -286,9 +303,9 @@ async function menuTourula(scope: MenuScope): Promise<MenuResult> {
       return { kind: 'html', html: wrapTodayHtmlFragment(ogHtml) }
     }
 
-    const inner = extractTourulaDaySectionFromRaw(raw)
+    const inner = await extractTourulaDaySectionFromRaw(raw)
     if (!inner) return { kind: 'error', message: 'Päivän upotusta ei löytynyt.' }
-    const sanitized = sanitizeHtmlString(inner)
+    const sanitized = await sanitizeHtmlString(inner)
     return { kind: 'html', html: wrapTodayHtmlFragment(sanitized) }
   }
 
@@ -297,9 +314,9 @@ async function menuTourula(scope: MenuScope): Promise<MenuResult> {
     return { kind: 'html', html: wrapHtmlFragment('Lounaslista', ogHtml + note) }
   }
 
-  const inner = extractTourulaWeekHtmlFromRaw(raw)
+  const inner = await extractTourulaWeekHtmlFromRaw(raw)
   if (!inner) return { kind: 'error', message: 'Sisältöä ei löytynyt.' }
-  const sanitized = sanitizeHtmlString(inner)
+  const sanitized = await sanitizeHtmlString(inner)
   const note = `<p class="menu-extract__note">Lisätieto: <a href="http://www.lounasinfo.fi/index.php?c=Suomi&amp;t=Jyv%C3%A4skyl%C3%A4&amp;a=Tourula&amp;r=12" target="_blank" rel="noopener">lounasinfo.fi</a></p>`
   return { kind: 'html', html: wrapHtmlFragment('Lounaslista', sanitized + note) }
 }
@@ -333,6 +350,7 @@ async function menuPapas(scope: MenuScope): Promise<MenuResult> {
 }
 
 async function menuSeppala(scope: MenuScope): Promise<MenuResult> {
+  const load = await loadCheerio()
   const base = 'https://www.seppalanlounaskeskus.fi'
   const url = restaurants.find((r) => r.id === 'seppala')!.embedUrl
   const raw = await fetchHtml(url)
